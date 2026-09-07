@@ -18,8 +18,8 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import type { ActivityItem, RouteOption, RouterResponse } from "@/lib/p2p-schema";
 
 const markets = [
-  { country: "Nigeria", fiat: "NGN" },
   { country: "Kenya", fiat: "KES" },
+  { country: "Nigeria", fiat: "NGN" },
   { country: "South Africa", fiat: "ZAR" },
   { country: "China", fiat: "CNY" },
   { country: "Argentina", fiat: "ARS" },
@@ -131,14 +131,14 @@ function ActivityTimeline({ items, loading, progress }: { items: ActivityItem[];
 
 export function RouterExperience() {
   const [tradeType, setTradeType] = useState<"BUY" | "SELL">("BUY");
-  const [country, setCountry] = useState("Nigeria");
-  const [fiat, setFiat] = useState("NGN");
+  const [country, setCountry] = useState("Kenya");
+  const [fiat, setFiat] = useState("KES");
   const [asset, setAsset] = useState("USDT");
   const [amount, setAmount] = useState("100");
   const [paymentMethod, setPaymentMethod] = useState("BANK");
   const [methods, setMethods] = useState<PaymentMethod[]>([{ identifier: "BANK", name: "Bank transfer" }]);
   const [methodStatus, setMethodStatus] = useState<"loading" | "available" | "unavailable" | "error">("loading");
-  const [prompt, setPrompt] = useState("I want to buy 100 USDT in Nigeria with bank transfer");
+  const [prompt, setPrompt] = useState("I want to buy 100 USDT in Kenya with bank transfer");
   const [intentState, setIntentState] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [intentMessage, setIntentMessage] = useState("");
   const [result, setResult] = useState<RouterResponse | null>(null);
@@ -282,8 +282,7 @@ export function RouterExperience() {
         <div className="route-fields">
           <label>
             <span><GlobeHemisphereWest size={17} /> Country</span>
-            <input
-              list="p2p-markets"
+            <select
               value={country}
               onChange={(event) => {
                 const nextCountry = event.target.value;
@@ -294,11 +293,11 @@ export function RouterExperience() {
                   setFiat(market.fiat);
                 }
               }}
-              placeholder="Type any country"
-            />
-            <datalist id="p2p-markets">
-              {markets.map((market) => <option key={market.fiat} value={market.country}>{market.fiat}</option>)}
-            </datalist>
+            >
+              {markets.map((market) => (
+                <option key={market.fiat} value={market.country}>{market.country} ({market.fiat})</option>
+              ))}
+            </select>
           </label>
           <label>
             <span><MapPinLine size={17} /> Fiat currency</span>
@@ -340,7 +339,7 @@ export function RouterExperience() {
           <button className="find-button" type="submit" disabled={loading}>
             {loading ? "Finding complete routes" : "Find my route"}<ArrowRight size={19} weight="bold" />
           </button>
-          <button className="example-button" type="button" onClick={useLiveExample}>Try Kenya example</button>
+          <button className="example-button" type="button" onClick={useLiveExample}>Reset to live Kenya demo</button>
         </div>
         <div className="source-line"><ShieldCheck size={16} weight="duotone" /><span>Live Binance P2P data. No account or API key required.</span></div>
       </form>
@@ -378,7 +377,7 @@ export function RouterExperience() {
           {!loading && result && !result.ok && (
             <div className="empty-result" role="alert">
               <WarningCircle size={28} weight="fill" />
-              <div><h2>No complete live route</h2><p>{result.message}</p><button type="button" onClick={useLiveExample}>Load a different market</button></div>
+              <div><h2>No complete live route</h2><p>{result.message}</p><button type="button" onClick={useLiveExample}>Use live Kenya market</button></div>
             </div>
           )}
         </div>
