@@ -4,9 +4,10 @@ import "./globals.css";
 
 const geist = Geist({ variable: "--font-geist", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://p2p-router.vercel.app";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"),
+  metadataBase: new URL(siteUrl),
   title: "P2P Router | Complete routes across Binance P2P",
   alternates: { canonical: "/" },
   description: "Choose a country, direction and crypto amount. P2P Router finds complete routes across real Binance P2P merchants.",
