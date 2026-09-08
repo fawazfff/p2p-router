@@ -89,18 +89,24 @@ export async function POST(request: Request) {
 
     if (!result.routes.length) {
       const reason = result.failureReason === "AMOUNT"
-        ? `Binance returned ${result.diagnostics.adsFound} live ads, but this amount is outside their order limits. Try a different amount.`
+        ? result.suggestedAmount
+          ? `The smallest eligible order is ${Number(result.suggestedAmount.toFixed(6))} ${parsed.data.asset}. Use that amount or enter more.`
+          : `Binance returned ${result.diagnostics.adsFound} live ads, but this amount is outside their order limits.`
         : result.failureReason === "PAYMENT"
           ? "Live ads were found, but none accept the selected payment method."
           : result.failureReason === "MERCHANT"
             ? "Live ads were found, but none passed the basic order-history and completion checks."
-            : "The eligible ads cannot cover the full amount, even when combined.";
+            : result.partialRoute
+              ? `A full route is not available. The best current route can cover ${Number(result.partialRoute.coveredAmount.toFixed(6))} of ${parsed.data.cryptoAmount} ${parsed.data.asset}.`
+              : "The current eligible ads cannot cover the full amount.";
       const response: RouterResponse = {
         ok: false,
         code: "NO_ROUTE",
         message: reason,
         activity: result.activity,
         diagnostics: result.diagnostics,
+        suggestedAmount: result.suggestedAmount,
+        partialRoute: result.partialRoute,
       };
       return Response.json(response, { status: 404 });
     }

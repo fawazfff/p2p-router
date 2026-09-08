@@ -70,6 +70,18 @@ export type RouteDiagnostics = {
   paymentEligible: number;
   merchantEligible: number;
   combinationsEvaluated: number;
+  minimumOrderAmount?: number;
+  maximumCoverable?: number;
+};
+
+export type PartialRoute = {
+  legs: RouteLeg[];
+  coveredAmount: number;
+  missingAmount: number;
+  effectivePrice: number;
+  fiatTotal: number;
+  reliabilityScore: number;
+  reasons: string[];
 };
 
 export type SuggestedPaymentMethod = {
@@ -105,6 +117,8 @@ export type RouterFailure = {
   activity?: ActivityItem[];
   diagnostics?: RouteDiagnostics;
   suggestedMethods?: SuggestedPaymentMethod[];
+  suggestedAmount?: number;
+  partialRoute?: PartialRoute;
 };
 
 export type RouterResponse = RouterSuccess | RouterFailure;

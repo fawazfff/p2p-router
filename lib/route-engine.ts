@@ -5,6 +5,7 @@ import type {
   RouteLeg,
   RouteOption,
   RouteDiagnostics,
+  PartialRoute,
   RouterRequest,
 } from "@/lib/p2p-schema";
 
@@ -21,17 +22,19 @@ type EngineResult = {
   activity: ActivityItem[];
   diagnostics: RouteDiagnostics;
   failureReason?: "NO_ADS" | "AMOUNT" | "PAYMENT" | "MERCHANT" | "CAPACITY";
+  suggestedAmount?: number;
+  partialRoute?: PartialRoute;
 };
 
 type CandidateRoute = Omit<RouteOption, "labels" | "explanation" | "reasons">;
 
 function cryptoMinimum(ad: BinanceAd) {
-  return ad.minTransAmount > 0 ? ad.minTransAmount / ad.price : 0;
+  return Math.max(0, ad.minTransAmount);
 }
 
 function cryptoCapacity(ad: BinanceAd) {
   const orderMaximum = ad.maxTransAmount > 0
-    ? ad.maxTransAmount / ad.price
+    ? ad.maxTransAmount
     : ad.tradableAmount;
   return Math.min(ad.tradableAmount, orderMaximum);
 }
@@ -161,6 +164,35 @@ function addLabel(
   selections.set(route.id, { ...route, labels: [label], explanation, reasons: [] });
 }
 
+function buildPartialRoute(
+  ads: BinanceAd[],
+  request: RouterRequest,
+): PartialRoute | null {
+  const minimumRequired = ads.reduce((sum, ad) => sum + cryptoMinimum(ad), 0);
+  const maximumAvailable = ads.reduce((sum, ad) => sum + cryptoCapacity(ad), 0);
+  const coveredAmount = Math.min(request.cryptoAmount, maximumAvailable);
+  if (coveredAmount <= 0 || coveredAmount + 1e-9 < minimumRequired) return null;
+
+  const candidate = buildCandidate(ads, { ...request, cryptoAmount: coveredAmount });
+  if (!candidate || coveredAmount >= request.cryptoAmount - 1e-9) return null;
+  const shownCovered = Number(coveredAmount.toFixed(8));
+  const shownMissing = Number((request.cryptoAmount - coveredAmount).toFixed(8));
+
+  return {
+    legs: candidate.legs,
+    coveredAmount: shownCovered,
+    missingAmount: shownMissing,
+    effectivePrice: candidate.effectivePrice,
+    fiatTotal: candidate.fiatTotal,
+    reliabilityScore: Math.floor(candidate.reliabilityScore * 100),
+    reasons: [
+      `These merchants can process ${shownCovered} ${request.asset} now.`,
+      `The remaining ${shownMissing} ${request.asset} is not covered by this route.`,
+      "Every merchant shown passed the payment, order-history and completion checks.",
+    ],
+  };
+}
+
 export function buildRoutes(ads: BinanceAd[], request: RouterRequest): EngineResult {
   const activity: ActivityItem[] = [
     { label: "Request read", detail: `${request.tradeType} ${request.cryptoAmount} ${request.asset} with ${request.fiat}`, status: "done" },
@@ -178,18 +210,10 @@ export function buildRoutes(ads: BinanceAd[], request: RouterRequest): EngineRes
 
   if (!ads.length) return { routes: [], activity, diagnostics, failureReason: "NO_ADS" };
 
-  const amountEligible = ads.filter((ad) => cryptoCapacity(ad) > 0 && cryptoMinimum(ad) <= request.cryptoAmount);
-  diagnostics.amountEligible = amountEligible.length;
-  activity.push({
-    label: "Amount checked",
-    detail: `${amountEligible.length} ads fit part or all of your amount`,
-    status: amountEligible.length ? "done" : "warning",
-  });
-
   const normalizedPayment = request.paymentMethod.toUpperCase();
   const paymentEligible = normalizedPayment === "ANY"
-    ? amountEligible
-    : amountEligible.filter((ad) =>
+    ? ads
+    : ads.filter((ad) =>
       ad.tradeMethods.some((method) => method.toUpperCase() === normalizedPayment),
     );
   diagnostics.paymentEligible = paymentEligible.length;
@@ -199,12 +223,32 @@ export function buildRoutes(ads: BinanceAd[], request: RouterRequest): EngineRes
     status: paymentEligible.length ? "done" : "warning",
   });
 
-  const merchantEligible = paymentEligible.filter((ad) =>
+  const amountEligible = paymentEligible.filter(
+    (ad) => cryptoCapacity(ad) > 0 && cryptoMinimum(ad) <= request.cryptoAmount,
+  );
+  diagnostics.amountEligible = amountEligible.length;
+  activity.push({
+    label: "Amount checked",
+    detail: `${amountEligible.length} ads fit part or all of your amount`,
+    status: amountEligible.length ? "done" : "warning",
+  });
+
+  const merchantEligible = amountEligible.filter((ad) =>
     ad.advertiser.monthOrderCount >= 5
     && ad.advertiser.monthFinishRate >= 0.8
     && ad.advertiser.positiveRate >= 0.8,
   );
   diagnostics.merchantEligible = merchantEligible.length;
+
+  const reliablePaymentAds = ads.filter((ad) =>
+    (normalizedPayment === "ANY" || ad.tradeMethods.some((method) => method.toUpperCase() === normalizedPayment))
+    && ad.advertiser.monthOrderCount >= 5
+    && ad.advertiser.monthFinishRate >= 0.8
+    && ad.advertiser.positiveRate >= 0.8,
+  );
+  if (reliablePaymentAds.length) {
+    diagnostics.minimumOrderAmount = Math.min(...reliablePaymentAds.map(cryptoMinimum));
+  }
   activity.push({
     label: "Merchant history checked",
     detail: `${merchantEligible.length} ads passed the order and completion checks`,
@@ -218,6 +262,7 @@ export function buildRoutes(ads: BinanceAd[], request: RouterRequest): EngineRes
     .slice(0, MAX_CANDIDATE_ADS);
 
   const candidates: CandidateRoute[] = [];
+  const partialCandidates: PartialRoute[] = [];
   let evaluated = 0;
   for (let size = 1; size <= Math.min(MAX_ROUTE_LEGS, sortedCandidates.length); size += 1) {
     for (const group of combinations(sortedCandidates, size)) {
@@ -225,6 +270,10 @@ export function buildRoutes(ads: BinanceAd[], request: RouterRequest): EngineRes
       evaluated += 1;
       const candidate = buildCandidate(group, request);
       if (candidate) candidates.push(candidate);
+      else {
+        const partial = buildPartialRoute(group, request);
+        if (partial) partialCandidates.push(partial);
+      }
     }
   }
   diagnostics.combinationsEvaluated = evaluated;
@@ -236,15 +285,30 @@ export function buildRoutes(ads: BinanceAd[], request: RouterRequest): EngineRes
   });
 
   if (!candidates.length) {
+    const partialRoute = partialCandidates.sort((left, right) => {
+      if (left.coveredAmount !== right.coveredAmount) return right.coveredAmount - left.coveredAmount;
+      if (left.legs.length !== right.legs.length) return left.legs.length - right.legs.length;
+      return request.tradeType === "BUY"
+        ? left.fiatTotal - right.fiatTotal
+        : right.fiatTotal - left.fiatTotal;
+    })[0];
+    if (partialRoute) diagnostics.maximumCoverable = partialRoute.coveredAmount;
     activity.push({ label: "Full amount checked", detail: "No route covers the full amount", status: "warning" });
-    const failureReason = amountEligible.length === 0
-      ? "AMOUNT"
-      : paymentEligible.length === 0
-        ? "PAYMENT"
+    const failureReason = paymentEligible.length === 0
+      ? "PAYMENT"
+      : amountEligible.length === 0
+        ? "AMOUNT"
         : merchantEligible.length === 0
           ? "MERCHANT"
           : "CAPACITY";
-    return { routes: [], activity, diagnostics, failureReason };
+    return {
+      routes: [],
+      activity,
+      diagnostics,
+      failureReason,
+      suggestedAmount: failureReason === "AMOUNT" ? diagnostics.minimumOrderAmount : undefined,
+      partialRoute,
+    };
   }
 
   const prices = candidates.map((route) => route.effectivePrice);

@@ -25,8 +25,9 @@ The implementation deliberately does not place, cancel or release P2P orders.
 2. Filter by requested amount and payment method.
 3. Apply basic merchant activity and reliability checks.
 4. Evaluate combinations of up to three merchants.
-5. Keep only routes that cover the full requested crypto amount.
+5. Keep routes that cover the full requested crypto amount.
 6. Rank complete routes as Cheapest, Balanced and Simplest.
+7. If no complete route exists, show the best real partial route and the missing amount.
 
 OpenAI reads natural-language requests and explains the selected route. It does not calculate prices, filter merchants or choose route combinations.
 
@@ -58,3 +59,5 @@ npm run build
 ## Important market note
 
 Availability is controlled by Binance and can vary by fiat currency, payment method, location and time. If Binance returns no listings, the app shows a visible live-data error and does not use sample merchants.
+
+The current country list contains markets that returned live USDT ads for both Buy and Sell during the release backtest: Kenya, South Africa, China, Argentina, Colombia, India, Mexico, Peru, Turkey and Vietnam. Nigeria and Brazil were removed because Binance returned no live USDT ads in either direction at test time.

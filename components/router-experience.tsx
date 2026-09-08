@@ -10,20 +10,20 @@ import {
   MagnifyingGlass,
   MapPinLine,
   Path,
+  PaperPlaneTilt,
+  Robot,
   ShieldCheck,
   Sparkle,
   WarningCircle,
 } from "@phosphor-icons/react";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import type { ActivityItem, RouteOption, RouterResponse } from "@/lib/p2p-schema";
+import type { ActivityItem, PartialRoute, RouteOption, RouterResponse } from "@/lib/p2p-schema";
 
 const markets = [
   { country: "Kenya", fiat: "KES" },
-  { country: "Nigeria", fiat: "NGN" },
   { country: "South Africa", fiat: "ZAR" },
   { country: "China", fiat: "CNY" },
   { country: "Argentina", fiat: "ARS" },
-  { country: "Brazil", fiat: "BRL" },
   { country: "Colombia", fiat: "COP" },
   { country: "India", fiat: "INR" },
   { country: "Mexico", fiat: "MXN" },
@@ -32,14 +32,16 @@ const markets = [
   { country: "Vietnam", fiat: "VND" },
 ];
 
+const unavailableMarkets = new Set(["NIGERIA", "NGN", "BRAZIL", "BRL"]);
+
 function loadingItems(tradeType: "BUY" | "SELL"): ActivityItem[] {
   const people = tradeType === "BUY" ? "sellers" : "buyers";
   return [
     { label: "Reading your request", detail: "Country, amount and payment method", status: "done" },
     { label: "Opening the P2P Skill", detail: "Connecting to Binance public data", status: "done" },
     { label: `Looking for live ${people}`, detail: "Reading the current ad list", status: "done" },
-    { label: "Checking your amount", detail: "Comparing each ad's minimum and limit", status: "done" },
     { label: "Matching payment methods", detail: "Keeping ads you can use", status: "done" },
+    { label: "Checking your amount", detail: "Comparing each ad's minimum and limit", status: "done" },
     { label: "Checking merchant history", detail: "Looking at orders and completion rates", status: "done" },
     { label: "Comparing complete routes", detail: "Testing one, two and three merchants", status: "done" },
     { label: "Preparing your choices", detail: "Cheapest, Balanced and Simplest", status: "done" },
@@ -47,6 +49,34 @@ function loadingItems(tradeType: "BUY" | "SELL"): ActivityItem[] {
 }
 
 type PaymentMethod = { identifier: string; name: string };
+type RouteSearchInput = {
+  country: string;
+  fiat: string;
+  asset: string;
+  tradeType: "BUY" | "SELL";
+  cryptoAmount: number;
+  paymentMethod: string;
+};
+
+function normalized(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function pickLiveMethod(methods: PaymentMethod[], requested?: string | null) {
+  if (!methods.length) return "ANY";
+  if (requested) {
+    const wanted = normalized(requested);
+    const exact = methods.find((method) =>
+      normalized(method.identifier) === wanted || normalized(method.name) === wanted,
+    );
+    if (exact) return exact.identifier;
+    if (wanted.includes("bank")) {
+      const bank = methods.find((method) => normalized(method.name).includes("bank"));
+      if (bank) return bank.identifier;
+    }
+  }
+  return methods.find((method) => method.identifier === "BANK")?.identifier || methods[0].identifier;
+}
 
 function formatNumber(value: number, maximumFractionDigits = 2) {
   return new Intl.NumberFormat("en", { maximumFractionDigits }).format(value);
@@ -107,6 +137,57 @@ function RouteCard({ route, result }: { route: RouteOption; result: Extract<Rout
         <span>{primaryLabel} route</span>
       </div>
     </article>
+  );
+}
+
+function PartialRouteCard({
+  route,
+  asset,
+  fiat,
+  requestedAmount,
+  tradeType,
+  onUseAmount,
+}: {
+  route: PartialRoute;
+  asset: string;
+  fiat: string;
+  requestedAmount: number;
+  tradeType: "BUY" | "SELL";
+  onUseAmount: (amount: number) => void;
+}) {
+  return (
+    <section className="partial-route-card">
+      <div className="partial-route-head">
+        <div><span>Available now</span><h2>{formatNumber(route.coveredAmount, 6)} of {formatNumber(requestedAmount, 6)} {asset}</h2></div>
+        <strong>{formatNumber(route.missingAmount, 6)} {asset} still needed</strong>
+      </div>
+      <p>This route is real, but it only covers part of your request. You can use the covered amount or try again later.</p>
+      <div className="route-total partial-total">
+        <span>{tradeType === "BUY" ? "You pay for the covered amount" : "You receive for the covered amount"}</span>
+        <strong>{formatNumber(route.fiatTotal)} {fiat}</strong>
+        <small>Average price {formatNumber(route.effectivePrice, 6)} {fiat}</small>
+      </div>
+      <div className="route-legs">
+        {route.legs.map((leg, index) => (
+          <div className="route-leg" key={leg.adNo}>
+            <div className="leg-index">{index + 1}</div>
+            <div className="leg-main">
+              <strong>{leg.merchant}</strong>
+              <span>{formatNumber(leg.cryptoAmount, 6)} {asset} at {formatNumber(leg.price, 6)} {fiat}</span>
+              <small>{leg.monthOrderCount} orders, {formatPercent(leg.monthFinishRate)} completed</small>
+            </div>
+            <a className="open-ad-button" href={leg.adUrl} target="_blank" rel="noreferrer" aria-label={`Open ${leg.merchant} ad on Binance`}>
+              Open on Binance <ArrowSquareOut size={17} weight="bold" />
+            </a>
+          </div>
+        ))}
+      </div>
+      <details className="route-why">
+        <summary>Why this partial route?<span aria-hidden="true">+</span></summary>
+        <ul>{route.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+      </details>
+      <button className="use-partial-button" type="button" onClick={() => onUseAmount(route.coveredAmount)}>Set amount to {formatNumber(route.coveredAmount, 6)} {asset}</button>
+    </section>
   );
 }
 
@@ -196,7 +277,31 @@ export function RouterExperience() {
     return () => window.clearInterval(timer);
   }, [loading, tradeType]);
 
-  async function understandRequest() {
+  async function runRouteSearch(input: RouteSearchInput) {
+    setProgress(0);
+    setLoading(true);
+    setResult(null);
+    try {
+      const response = await fetch("/api/router", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      const data = await response.json() as RouterResponse;
+      setResult(data);
+    } catch {
+      setResult({
+        ok: false,
+        code: "UPSTREAM_UNAVAILABLE",
+        message: "Binance live data is not responding. No sample sellers were used.",
+      });
+    } finally {
+      setLoading(false);
+      window.setTimeout(() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+    }
+  }
+
+  async function runAgentInstruction() {
     setIntentState("loading");
     setIntentMessage("");
     try {
@@ -206,68 +311,58 @@ export function RouterExperience() {
         body: JSON.stringify({ prompt }),
       });
       const data = await response.json();
-      if (!response.ok || !data.ok) throw new Error(data.message || "The request could not be interpreted.");
+      if (!response.ok || !data.ok) throw new Error(data.message || "I could not read that request.");
 
       const parsed = data.parsed;
-      if (parsed.fiat && markets.some((market) => market.fiat === parsed.fiat.toUpperCase())) {
-        const market = markets.find((item) => item.fiat === parsed.fiat.toUpperCase());
-        setMethodStatus("loading");
-        setFiat(parsed.fiat.toUpperCase());
-        if (market) setCountry(market.country);
+      const requestedMarket = parsed.fiat?.toUpperCase() || parsed.country?.toUpperCase();
+      if (requestedMarket && unavailableMarkets.has(requestedMarket)) {
+        throw new Error("Binance currently returns no live USDT market for that country. Choose a country shown in the route details.");
       }
-      else if (parsed.country) {
-        const market = markets.find((item) => item.country.toLowerCase() === parsed.country.toLowerCase());
-        if (market) {
-          setMethodStatus("loading");
-          setFiat(market.fiat);
-        }
+      const parsedMarket = markets.find((market) =>
+        market.fiat === parsed.fiat?.toUpperCase()
+        || market.country.toLowerCase() === parsed.country?.toLowerCase(),
+      );
+      if ((parsed.fiat || parsed.country) && !parsedMarket) {
+        throw new Error("That market is not in the live-checked country list. Choose one of the countries below.");
       }
-      if (parsed.country) {
-        const market = markets.find((item) => item.country.toLowerCase() === parsed.country.toLowerCase());
-        if (market) setCountry(market.country);
-      }
-      if (parsed.asset) setAsset(parsed.asset.toUpperCase());
-      if (parsed.tradeType) setTradeType(parsed.tradeType);
-      if (parsed.cryptoAmount) setAmount(String(parsed.cryptoAmount));
-      if (parsed.paymentMethod) setPaymentMethod(parsed.paymentMethod.toUpperCase());
+
+      const nextCountry = parsedMarket?.country || country;
+      const nextFiat = parsedMarket?.fiat || fiat;
+      const nextAsset = parsed.asset?.toUpperCase() || asset;
+      const nextTradeType = parsed.tradeType || tradeType;
+      const nextAmount = parsed.cryptoAmount || Number(amount);
+      const methodsResponse = await fetch(`/api/methods?fiat=${encodeURIComponent(nextFiat)}&asset=${encodeURIComponent(nextAsset)}&tradeType=${nextTradeType}`);
+      const methodsData = await methodsResponse.json();
+      const liveMethods = methodsData.ok ? methodsData.methods as PaymentMethod[] : [];
+      const nextPaymentMethod = pickLiveMethod(liveMethods, parsed.paymentMethod);
+
+      setMethodStatus(liveMethods.length ? "available" : "unavailable");
+      setMethods(liveMethods.length ? liveMethods : [{ identifier: "ANY", name: "Any live payment method" }]);
+      setCountry(nextCountry);
+      setFiat(nextFiat);
+      setAsset(nextAsset);
+      setTradeType(nextTradeType);
+      setAmount(String(nextAmount));
+      setPaymentMethod(nextPaymentMethod);
       setIntentState("done");
-      setIntentMessage("Request understood. Review the route details below.");
+      setIntentMessage(`I read: ${nextTradeType === "BUY" ? "Buy" : "Sell"} ${nextAmount} ${nextAsset} in ${nextCountry}. I am checking Binance now.`);
+      await runRouteSearch({
+        country: nextCountry,
+        fiat: nextFiat,
+        asset: nextAsset,
+        tradeType: nextTradeType,
+        cryptoAmount: nextAmount,
+        paymentMethod: nextPaymentMethod,
+      });
     } catch (error) {
       setIntentState("error");
-      setIntentMessage(error instanceof Error ? error.message : "Use the route fields below.");
+      setIntentMessage(error instanceof Error ? error.message : "Use the route details below.");
     }
   }
 
   async function findRoutes(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setProgress(0);
-    setLoading(true);
-    setResult(null);
-    try {
-      const response = await fetch("/api/router", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          country,
-          fiat,
-          asset,
-          tradeType,
-          cryptoAmount: Number(amount),
-          paymentMethod,
-        }),
-      });
-      const data = await response.json() as RouterResponse;
-      setResult(data);
-    } catch {
-      setResult({
-        ok: false,
-        code: "UPSTREAM_UNAVAILABLE",
-        message: "Live Binance P2P data is unavailable right now. P2P Router did not fall back to mock merchants.",
-      });
-    } finally {
-      setLoading(false);
-      window.setTimeout(() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
-    }
+    await runRouteSearch({ country, fiat, asset, tradeType, cryptoAmount: Number(amount), paymentMethod });
   }
 
   function useLiveExample() {
@@ -288,18 +383,59 @@ export function RouterExperience() {
     window.setTimeout(() => document.querySelector<HTMLButtonElement>(".find-button")?.focus(), 50);
   }
 
+  function tryAmount(nextAmount: number) {
+    setAmount(String(nextAmount));
+    setResult(null);
+    window.setTimeout(() => document.querySelector<HTMLButtonElement>(".find-button")?.focus(), 50);
+  }
+
+  const visualState = loading
+    ? "searching"
+    : result?.ok
+      ? "covered"
+      : result?.partialRoute
+        ? "partial"
+        : result
+          ? "unavailable"
+          : "idle";
+
   return (
     <div id="router" className="router-wrap">
       <form className="router-card" onSubmit={findRoutes}>
-        <div className="prompt-row">
-          <MagnifyingGlass size={20} weight="bold" aria-hidden="true" />
-          <label htmlFor="route-prompt" className="sr-only">Describe your P2P route</label>
-          <input id="route-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Tell the agent what you need" />
-          <button type="button" onClick={understandRequest} disabled={intentState === "loading"}>
-            {intentState === "loading" ? "Reading" : "Understand"}
-          </button>
+        <div className="agent-command-layout">
+          <div className="agent-command-box">
+            <div className="agent-command-head">
+              <span><Robot size={20} weight="duotone" /> P2P route agent</span>
+              <i className={intentState === "loading" || loading ? "working" : intentState === "done" ? "done" : "ready"}>
+                {intentState === "loading" || loading ? "Working" : intentState === "done" ? "Done" : "Ready"}
+              </i>
+            </div>
+            <label htmlFor="route-prompt">Tell the agent what you want to do</label>
+            <textarea
+              id="route-prompt"
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              placeholder="Example: I want to buy 100 USDT in India with UPI"
+              rows={4}
+            />
+            <button className="agent-run-button" type="button" onClick={runAgentInstruction} disabled={intentState === "loading" || loading}>
+              {intentState === "loading" || loading ? "Checking live ads" : "Find routes"}<PaperPlaneTilt size={18} weight="fill" />
+            </button>
+          </div>
+          <aside className="agent-goal-card">
+            <span>Agent goal</span>
+            <h2>Cover your full crypto amount.</h2>
+            <p>The agent reads your request, checks live Binance ads, and compares routes you can open.</p>
+            <ol>
+              <li><CheckCircle size={15} weight="fill" /> Read what you need</li>
+              <li><CheckCircle size={15} weight="fill" /> Check price, limits and payment</li>
+              <li><CheckCircle size={15} weight="fill" /> Show what can be completed now</li>
+            </ol>
+          </aside>
         </div>
         {intentMessage && <p className={`intent-message ${intentState}`}>{intentMessage}</p>}
+
+        <div className="manual-heading"><span>Route details</span><small>You can change any detail before searching.</small></div>
 
         <div className="trade-toggle" aria-label="Trade direction">
           <button type="button" className={tradeType === "BUY" ? "active" : ""} onClick={() => { setMethodStatus("loading"); setTradeType("BUY"); }}>Buy crypto</button>
@@ -330,12 +466,7 @@ export function RouterExperience() {
             <span><MapPinLine size={17} /> Fiat currency</span>
             <input
               value={fiat}
-              onChange={(event) => {
-                setMethodStatus("loading");
-                setFiat(event.target.value.toUpperCase().slice(0, 3));
-              }}
-              maxLength={3}
-              pattern="[A-Z]{3}"
+              readOnly
               required
             />
           </label>
@@ -373,14 +504,23 @@ export function RouterExperience() {
         <div className="source-line"><ShieldCheck size={16} weight="duotone" /><span>Live Binance P2P data. No account or API key required.</span></div>
       </form>
 
-      <div className="route-visual" aria-hidden="true">
+      <div className={`route-visual ${visualState}`} aria-hidden="true">
         <div className="visual-origin"><span>You</span></div>
         <div className="visual-path path-one"><i /></div>
-        <div className="visual-stop stop-one"><span>Merchant</span><strong>Price</strong></div>
+        <div className="visual-stop stop-one"><span>{loading ? "Checking" : "Merchant"}</span><strong>Price</strong></div>
         <div className="visual-path path-two"><i /></div>
-        <div className="visual-stop stop-two"><span>Merchant</span><strong>Limits</strong></div>
+        <div className="visual-stop stop-two"><span>{loading ? "Checking" : "Merchant"}</span><strong>Limits</strong></div>
         <div className="visual-path path-three"><i /></div>
-        <div className="visual-destination"><CheckCircle size={22} weight="fill" /><span>Full amount covered</span></div>
+        <div className="visual-destination">
+          {visualState === "unavailable" || visualState === "partial" ? <WarningCircle size={22} weight="fill" /> : <CheckCircle size={22} weight="fill" />}
+          <span>
+            {visualState === "searching" && "Checking live routes"}
+            {visualState === "covered" && "Full amount covered"}
+            {visualState === "partial" && "Part of the amount is available"}
+            {visualState === "unavailable" && "Change the route details"}
+            {visualState === "idle" && "Your route result appears here"}
+          </span>
+        </div>
       </div>
 
       {(loading || result) && (
@@ -404,11 +544,15 @@ export function RouterExperience() {
             </div>
           )}
           {!loading && result && !result.ok && (
-            <div className="empty-result" role="alert">
-              <WarningCircle size={28} weight="fill" />
-              <div><h2>No complete live route</h2><p>{result.message}</p>
-                {result.suggestedMethods?.length ? <div className="suggested-methods"><strong>Try a method used by live ads</strong><div>{result.suggestedMethods.map((method) => <button type="button" key={method.identifier} onClick={() => tryPaymentMethod(method)}>{method.name}</button>)}</div></div> : null}
-                <button className="kenya-button" type="button" onClick={useLiveExample}>Switch to the Kenya demo</button>
+            <div className="failure-results" role="alert">
+              {result.partialRoute ? <PartialRouteCard route={result.partialRoute} asset={asset} fiat={fiat} requestedAmount={Number(amount)} tradeType={tradeType} onUseAmount={tryAmount} /> : null}
+              <div className={`empty-result ${result.partialRoute ? "compact" : ""}`}>
+                <WarningCircle size={28} weight="fill" />
+                <div><h2>{result.partialRoute ? "The rest is not covered" : "No complete route yet"}</h2><p>{result.message}</p>
+                  {result.suggestedAmount ? <div className="suggested-amount"><button type="button" onClick={() => tryAmount(result.suggestedAmount as number)}>Set amount to {formatNumber(result.suggestedAmount, 6)} {asset}</button><span>This is the smallest eligible amount found now.</span></div> : null}
+                  {result.suggestedMethods?.length ? <div className="suggested-methods"><strong>Try a payment method used by live ads</strong><div>{result.suggestedMethods.map((method) => <button type="button" key={method.identifier} onClick={() => tryPaymentMethod(method)}>{method.name}</button>)}</div></div> : null}
+                  {!result.partialRoute && !result.suggestedAmount ? <button className="kenya-button" type="button" onClick={useLiveExample}>Switch to the Kenya demo</button> : null}
+                </div>
               </div>
             </div>
           )}

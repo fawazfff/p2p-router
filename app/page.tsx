@@ -87,7 +87,7 @@ export default function Home() {
 
       <section id="faq" className="landing-section faq-section"><div className="shell faq-layout"><div className="faq-heading" data-reveal><h2>Questions before you start.</h2><p>The router compares the ads. You choose what to open.</p></div><div className="faq-list" data-reveal>{faqs.map(([question, answer]) => <details key={question}><summary>{question}<span aria-hidden="true">+</span></summary><p>{answer}</p></details>)}</div></div></section>
 
-      <section className="final-cta"><div className="shell final-cta-inner" data-reveal><h2>Check the whole route before you trade.</h2><p>Start with Kenya or choose another market. Availability comes straight from Binance.</p><Link className="primary-cta light-cta" href="/router">Find a route <ArrowRight size={18} weight="bold" /></Link></div></section>
+      <section className="final-cta"><div className="shell final-cta-inner" data-reveal><h2>Check the whole route before you trade.</h2><p>Tell the agent what you need. It checks the live market for you.</p><Link className="primary-cta light-cta" href="/router">Find a route <ArrowRight size={18} weight="bold" /></Link></div></section>
 
       <footer><div className="shell footer-inner"><div><Brand /><p>Route planning for Binance P2P.</p></div><p className="footer-note">Prices and merchant availability can change. Confirm every term on Binance before placing an order.</p></div></footer>
     </main>

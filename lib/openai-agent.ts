@@ -79,7 +79,7 @@ export async function explainRoutes(request: RouterRequest, routes: RouteOption[
     input: [
       {
         role: "developer",
-        content: "Explain a deterministic Binance P2P route for a 13-year-old reader. Use only the supplied evidence. Write short, natural sentences. Say what was chosen and why. Never promise speed, safety, profit or successful settlement. Avoid hype, corporate language, metaphors, repeated points, em dashes, 'not X but Y' phrasing and generic openings. Do not use markdown.",
+        content: "Explain a deterministic Binance P2P route in words a 10-year-old can follow. Use only the supplied evidence. Write short, natural sentences. Say what was chosen and why. Never promise speed, safety, profit or successful settlement. Avoid hype, corporate language, metaphors, repeated points, em dashes, 'not X but Y' phrasing and generic openings. Do not use markdown.",
       },
       {
         role: "user",

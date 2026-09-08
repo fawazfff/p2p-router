@@ -15,7 +15,7 @@ export default function RouterPage() {
       <header className="product-header"><div className="shell product-header-inner"><Link href="/" className="wordmark" aria-label="P2P Router home"><span className="route-mark" aria-hidden="true"><i /><i /><i /></span><span>P2P Router</span></Link><Link href="/" className="back-link"><ArrowLeft size={17} weight="bold" /> Home</Link></div></header>
       <section className="router-page-main shell">
         <nav className="breadcrumbs" aria-label="Breadcrumb"><Link href="/">Home</Link><span aria-hidden="true">/</span><span>Route planner</span></nav>
-        <div className="router-intro"><p>Live route planner</p><h1>Plan your complete P2P route.</h1><span>Start with Kenya or choose another market. Binance availability is checked live.</span></div><RouterExperience />
+        <div className="router-intro"><p>Live route agent</p><h1>Tell us what you want to buy or sell.</h1><span>The agent checks real Binance ads and shows what can be completed now.</span></div><RouterExperience />
       </section>
     </main>
   );
