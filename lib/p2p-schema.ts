@@ -61,6 +61,20 @@ export type RouteOption = {
   reliabilityScore: number;
   routeScore: number;
   explanation: string;
+  reasons: string[];
+};
+
+export type RouteDiagnostics = {
+  adsFound: number;
+  amountEligible: number;
+  paymentEligible: number;
+  merchantEligible: number;
+  combinationsEvaluated: number;
+};
+
+export type SuggestedPaymentMethod = {
+  identifier: string;
+  name: string;
 };
 
 export type ActivityItem = {
@@ -89,6 +103,8 @@ export type RouterFailure = {
   code: "NO_ADS" | "NO_ROUTE" | "PAYMENT_UNAVAILABLE" | "UPSTREAM_UNAVAILABLE" | "INVALID_REQUEST";
   message: string;
   activity?: ActivityItem[];
+  diagnostics?: RouteDiagnostics;
+  suggestedMethods?: SuggestedPaymentMethod[];
 };
 
 export type RouterResponse = RouterSuccess | RouterFailure;

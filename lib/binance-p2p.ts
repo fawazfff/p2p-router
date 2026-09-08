@@ -44,36 +44,36 @@ function asNumber(value: number | string | undefined): number {
 }
 
 async function binanceFetch<T>(path: string, params: URLSearchParams): Promise<T> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const response = await fetch(`${BINANCE_MGS_BASE}${path}?${params.toString()}`, {
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "binance-wallet/1.0.0 (Skill)",
+        },
+        signal: controller.signal,
+      });
 
-  try {
-    const response = await fetch(`${BINANCE_MGS_BASE}${path}?${params.toString()}`, {
-      cache: "no-store",
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "binance-wallet/1.0.0 (Skill)",
-      },
-      signal: controller.signal,
-    });
+      if (!response.ok) throw new Error(`Binance returned HTTP ${response.status}`);
 
-    if (!response.ok) {
-      throw new Error(`Binance returned HTTP ${response.status}`);
+      const body = (await response.json()) as BinanceEnvelope<T>;
+      if (body.success === false || (body.code && body.code !== "000000")) {
+        throw new Error(body.message || "Binance returned an unsuccessful response");
+      }
+      if (body.data === undefined) throw new Error("Binance returned no data field");
+
+      return body.data;
+    } catch (error) {
+      lastError = error;
+    } finally {
+      clearTimeout(timeout);
     }
-
-    const body = (await response.json()) as BinanceEnvelope<T>;
-    if (body.success === false || (body.code && body.code !== "000000")) {
-      throw new Error(body.message || "Binance returned an unsuccessful response");
-    }
-
-    if (body.data === undefined) {
-      throw new Error("Binance returned no data field");
-    }
-
-    return body.data;
-  } finally {
-    clearTimeout(timeout);
   }
+  throw lastError instanceof Error ? lastError : new Error("Binance request failed");
 }
 
 export async function listP2PAds(input: {

@@ -4,6 +4,7 @@ import type {
   RouteLabel,
   RouteLeg,
   RouteOption,
+  RouteDiagnostics,
   RouterRequest,
 } from "@/lib/p2p-schema";
 
@@ -18,9 +19,11 @@ function roundAmount(value: number) {
 type EngineResult = {
   routes: RouteOption[];
   activity: ActivityItem[];
+  diagnostics: RouteDiagnostics;
+  failureReason?: "NO_ADS" | "AMOUNT" | "PAYMENT" | "MERCHANT" | "CAPACITY";
 };
 
-type CandidateRoute = Omit<RouteOption, "labels" | "explanation">;
+type CandidateRoute = Omit<RouteOption, "labels" | "explanation" | "reasons">;
 
 function cryptoMinimum(ad: BinanceAd) {
   return ad.minTransAmount > 0 ? ad.minTransAmount / ad.price : 0;
@@ -155,22 +158,31 @@ function addLabel(
     }
     return;
   }
-  selections.set(route.id, { ...route, labels: [label], explanation });
+  selections.set(route.id, { ...route, labels: [label], explanation, reasons: [] });
 }
 
 export function buildRoutes(ads: BinanceAd[], request: RouterRequest): EngineResult {
   const activity: ActivityItem[] = [
-    { label: "Goal understood", detail: `${request.tradeType} ${request.cryptoAmount} ${request.asset} with ${request.fiat}`, status: "done" },
-    { label: "P2P Skill invoked", detail: "Binance public Agent P2P endpoint", status: "done" },
-    { label: "Ads discovered", detail: `${ads.length} live ads returned`, status: ads.length ? "done" : "warning" },
+    { label: "Request read", detail: `${request.tradeType} ${request.cryptoAmount} ${request.asset} with ${request.fiat}`, status: "done" },
+    { label: "P2P Skill opened", detail: "Connected to Binance public market data", status: "done" },
+    { label: "Live ads checked", detail: `${ads.length} ads returned by Binance`, status: ads.length ? "done" : "warning" },
   ];
 
-  if (!ads.length) return { routes: [], activity };
+  const diagnostics: RouteDiagnostics = {
+    adsFound: ads.length,
+    amountEligible: 0,
+    paymentEligible: 0,
+    merchantEligible: 0,
+    combinationsEvaluated: 0,
+  };
+
+  if (!ads.length) return { routes: [], activity, diagnostics, failureReason: "NO_ADS" };
 
   const amountEligible = ads.filter((ad) => cryptoCapacity(ad) > 0 && cryptoMinimum(ad) <= request.cryptoAmount);
+  diagnostics.amountEligible = amountEligible.length;
   activity.push({
-    label: "Amount filter",
-    detail: `${amountEligible.length} ads can accept part or all of this amount`,
+    label: "Amount checked",
+    detail: `${amountEligible.length} ads fit part or all of your amount`,
     status: amountEligible.length ? "done" : "warning",
   });
 
@@ -180,9 +192,10 @@ export function buildRoutes(ads: BinanceAd[], request: RouterRequest): EngineRes
     : amountEligible.filter((ad) =>
       ad.tradeMethods.some((method) => method.toUpperCase() === normalizedPayment),
     );
+  diagnostics.paymentEligible = paymentEligible.length;
   activity.push({
-    label: "Payment filter",
-    detail: `${paymentEligible.length} ads support the selected method`,
+    label: "Payment matched",
+    detail: `${paymentEligible.length} ads use the selected method`,
     status: paymentEligible.length ? "done" : "warning",
   });
 
@@ -191,9 +204,10 @@ export function buildRoutes(ads: BinanceAd[], request: RouterRequest): EngineRes
     && ad.advertiser.monthFinishRate >= 0.8
     && ad.advertiser.positiveRate >= 0.8,
   );
+  diagnostics.merchantEligible = merchantEligible.length;
   activity.push({
-    label: "Merchant filter",
-    detail: `${merchantEligible.length} ads passed activity and reliability checks`,
+    label: "Merchant history checked",
+    detail: `${merchantEligible.length} ads passed the order and completion checks`,
     status: merchantEligible.length ? "done" : "warning",
   });
 
@@ -207,21 +221,30 @@ export function buildRoutes(ads: BinanceAd[], request: RouterRequest): EngineRes
   let evaluated = 0;
   for (let size = 1; size <= Math.min(MAX_ROUTE_LEGS, sortedCandidates.length); size += 1) {
     for (const group of combinations(sortedCandidates, size)) {
+      if (new Set(group.map((ad) => ad.advertiser.nickName)).size !== group.length) continue;
       evaluated += 1;
       const candidate = buildCandidate(group, request);
       if (candidate) candidates.push(candidate);
     }
   }
+  diagnostics.combinationsEvaluated = evaluated;
 
   activity.push({
-    label: "Route combinations evaluated",
-    detail: `${evaluated} combinations checked, up to ${MAX_ROUTE_LEGS} merchants each`,
+    label: "Complete routes compared",
+    detail: `${evaluated} combinations checked, using up to ${MAX_ROUTE_LEGS} merchants`,
     status: evaluated ? "done" : "warning",
   });
 
   if (!candidates.length) {
-    activity.push({ label: "Routes found", detail: "No route covers the full amount", status: "warning" });
-    return { routes: [], activity };
+    activity.push({ label: "Full amount checked", detail: "No route covers the full amount", status: "warning" });
+    const failureReason = amountEligible.length === 0
+      ? "AMOUNT"
+      : paymentEligible.length === 0
+        ? "PAYMENT"
+        : merchantEligible.length === 0
+          ? "MERCHANT"
+          : "CAPACITY";
+    return { routes: [], activity, diagnostics, failureReason };
   }
 
   const prices = candidates.map((route) => route.effectivePrice);
@@ -247,15 +270,20 @@ export function buildRoutes(ads: BinanceAd[], request: RouterRequest): EngineRes
   const balanced = [...candidates].sort((left, right) => right.routeScore - left.routeScore)[0];
 
   const selections = new Map<string, RouteOption>();
-  addLabel(selections, cheapest, "Cheapest", "Uses the strongest available price across the full requested amount.");
-  addLabel(selections, balanced, "Balanced", "Balances price, merchant history, completion rate and route simplicity.");
-  addLabel(selections, simplest, "Simplest", "Uses the fewest merchants while still covering the full amount.");
+  addLabel(selections, cheapest, "Cheapest", "Has the lowest total for the full amount.");
+  addLabel(selections, balanced, "Balanced", "Combines price, merchant history and fewer handoffs.");
+  addLabel(selections, simplest, "Simplest", "Uses the fewest merchants that can cover the full amount.");
 
   const routes = [...selections.values()]
     .map((route) => ({
       ...route,
       reliabilityScore: Math.floor(route.reliabilityScore * 100),
       routeScore: Math.round(route.routeScore * 100),
+      reasons: [
+        route.explanation,
+        `${route.legs.length === 1 ? "One merchant covers" : `${route.legs.length} merchants cover`} all ${request.cryptoAmount} ${request.asset}.`,
+        `The route passed price, amount, payment and merchant checks.`,
+      ],
     }))
     .sort((left, right) => {
       const order: RouteLabel[] = ["Balanced", "Cheapest", "Simplest"];
@@ -263,10 +291,10 @@ export function buildRoutes(ads: BinanceAd[], request: RouterRequest): EngineRes
     });
 
   activity.push({
-    label: "Routes found",
+    label: "Full routes found",
     detail: `${routes.length} distinct routes cover the full amount`,
     status: "done",
   });
 
-  return { routes, activity };
+  return { routes, activity, diagnostics };
 }

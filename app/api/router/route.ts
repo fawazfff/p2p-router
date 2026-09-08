@@ -21,49 +21,86 @@ export async function POST(request: Request) {
   }
 
   try {
-    const methods = await listTradeMethods(parsed.data.fiat);
+    const [methods, ads] = await Promise.all([
+      listTradeMethods(parsed.data.fiat),
+      listP2PAds({
+        fiat: parsed.data.fiat,
+        asset: parsed.data.asset,
+        tradeType: parsed.data.tradeType,
+        paymentMethod: parsed.data.paymentMethod,
+      }),
+    ]);
     const paymentMethodExists = methods.some(
       (method) => method.identifier === parsed.data.paymentMethod,
     );
 
     if (parsed.data.paymentMethod !== "ANY" && !paymentMethodExists) {
+      const liveAds = await listP2PAds({
+        fiat: parsed.data.fiat,
+        asset: parsed.data.asset,
+        tradeType: parsed.data.tradeType,
+      });
+      const methodNames = new Map(methods.map((method) => [method.identifier, method.name]));
+      const suggestedMethods = Array.from(new Set(liveAds.flatMap((ad) => ad.tradeMethods)))
+        .slice(0, 4)
+        .map((identifier) => ({ identifier, name: methodNames.get(identifier) || identifier }));
       const response: RouterResponse = {
         ok: false,
         code: "PAYMENT_UNAVAILABLE",
-        message: `Binance returned no live ${parsed.data.paymentMethod} payment method for ${parsed.data.fiat}. No substitute identifier was used.`,
+        message: methods.length
+          ? `Binance does not list ${parsed.data.paymentMethod} for ${parsed.data.fiat}. Choose one of the live methods below.`
+          : `Binance currently lists no payment methods for ${parsed.data.fiat}.`,
+        suggestedMethods,
         activity: [
-          { label: "Goal understood", detail: `${parsed.data.tradeType} ${parsed.data.cryptoAmount} ${parsed.data.asset} with ${parsed.data.fiat}`, status: "done" },
-          { label: "P2P Skill invoked", detail: "Binance public Agent P2P endpoint", status: "done" },
-          { label: "Payment method check", detail: "Selected method is not available for this fiat", status: "warning" },
+          { label: "Request read", detail: `${parsed.data.tradeType} ${parsed.data.cryptoAmount} ${parsed.data.asset} with ${parsed.data.fiat}`, status: "done" },
+          { label: "Live ads checked", detail: `${liveAds.length} ads returned by Binance`, status: liveAds.length ? "done" : "warning" },
+          { label: "Payment checked", detail: "The selected method is not listed for this currency", status: "warning" },
         ],
       };
       return Response.json(response, { status: 404 });
     }
-
-    const ads = await listP2PAds({
-      fiat: parsed.data.fiat,
-      asset: parsed.data.asset,
-      tradeType: parsed.data.tradeType,
-      paymentMethod: parsed.data.paymentMethod,
-    });
     const result = buildRoutes(ads, parsed.data);
 
     if (!ads.length) {
+      const liveAds = parsed.data.paymentMethod === "ANY"
+        ? ads
+        : await listP2PAds({
+          fiat: parsed.data.fiat,
+          asset: parsed.data.asset,
+          tradeType: parsed.data.tradeType,
+        });
+      const methodNames = new Map(methods.map((method) => [method.identifier, method.name]));
+      const suggestedMethods = Array.from(new Set(liveAds.flatMap((ad) => ad.tradeMethods)))
+        .filter((identifier) => identifier !== parsed.data.paymentMethod)
+        .slice(0, 4)
+        .map((identifier) => ({ identifier, name: methodNames.get(identifier) || identifier }));
       const response: RouterResponse = {
         ok: false,
         code: "NO_ADS",
-        message: "Binance returned no live ads for this market and payment method. No substitute data was used.",
+        message: liveAds.length
+          ? `Binance has live ${parsed.data.fiat} ads, but none use this payment method. Try a live method below.`
+          : `Binance returned no live ${parsed.data.asset} ads for this currency and trade direction. P2P Router did not use sample sellers.`,
         activity: result.activity,
+        diagnostics: result.diagnostics,
+        suggestedMethods,
       };
       return Response.json(response, { status: 404 });
     }
 
     if (!result.routes.length) {
+      const reason = result.failureReason === "AMOUNT"
+        ? `Binance returned ${result.diagnostics.adsFound} live ads, but this amount is outside their order limits. Try a different amount.`
+        : result.failureReason === "PAYMENT"
+          ? "Live ads were found, but none accept the selected payment method."
+          : result.failureReason === "MERCHANT"
+            ? "Live ads were found, but none passed the basic order-history and completion checks."
+            : "The eligible ads cannot cover the full amount, even when combined.";
       const response: RouterResponse = {
         ok: false,
         code: "NO_ROUTE",
-        message: "Live ads were found, but no verified route covers the full requested amount with these filters.",
+        message: reason,
         activity: result.activity,
+        diagnostics: result.diagnostics,
       };
       return Response.json(response, { status: 404 });
     }

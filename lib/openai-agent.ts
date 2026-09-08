@@ -25,6 +25,15 @@ function client() {
 
 const MODEL = process.env.OPENAI_MODEL || "gpt-5.6-luna";
 
+function cleanCopy(value: string, maximumLength: number) {
+  return value
+    .replace(/[—–]/g, ",")
+    .replace(/\s+/g, " ")
+    .replace(/^(In (today's|the) .+?,\s*)/i, "")
+    .trim()
+    .slice(0, maximumLength);
+}
+
 export async function interpretIntent(prompt: string) {
   const openai = client();
   if (!openai) {
@@ -36,7 +45,7 @@ export async function interpretIntent(prompt: string) {
     input: [
       {
         role: "developer",
-        content: "Extract a Binance P2P search request. BUY means the user pays fiat and receives crypto. SELL means the user sends crypto and receives fiat. Return null for anything not stated. Payment methods should be concise identifiers when obvious, such as BANK for bank transfer. Do not calculate routes or invent market facts.",
+        content: "Extract a Binance P2P search request. BUY means the user pays fiat and receives crypto. SELL means the user sends crypto and receives fiat. Return null for anything not stated. Payment methods should be concise identifiers when obvious, such as BANK for bank transfer. Do not calculate routes or invent facts.",
       },
       { role: "user", content: prompt.slice(0, 500) },
     ],
@@ -70,7 +79,7 @@ export async function explainRoutes(request: RouterRequest, routes: RouteOption[
     input: [
       {
         role: "developer",
-        content: "Explain a deterministic Binance P2P route in plain language. Use only the supplied evidence. Never promise speed, safety, profit, or successful settlement. Keep the tone practical and brief.",
+        content: "Explain a deterministic Binance P2P route for a 13-year-old reader. Use only the supplied evidence. Write short, natural sentences. Say what was chosen and why. Never promise speed, safety, profit or successful settlement. Avoid hype, corporate language, metaphors, repeated points, em dashes, 'not X but Y' phrasing and generic openings. Do not use markdown.",
       },
       {
         role: "user",
@@ -80,5 +89,11 @@ export async function explainRoutes(request: RouterRequest, routes: RouteOption[
     text: { format: zodTextFormat(explanationSchema, "route_explanation") },
   });
 
-  return response.output_parsed;
+  const parsed = response.output_parsed;
+  if (!parsed) return null;
+  return {
+    headline: cleanCopy(parsed.headline, 90),
+    summary: cleanCopy(parsed.summary, 260),
+    watchFor: cleanCopy(parsed.watchFor, 220),
+  };
 }

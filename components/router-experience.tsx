@@ -32,16 +32,19 @@ const markets = [
   { country: "Vietnam", fiat: "VND" },
 ];
 
-const loadingLabels = [
-  "Goal understood",
-  "P2P Skill invoked",
-  "Ads discovered",
-  "Amount filter",
-  "Payment filter",
-  "Merchant filter",
-  "Route combinations evaluated",
-  "Routes found",
-];
+function loadingItems(tradeType: "BUY" | "SELL"): ActivityItem[] {
+  const people = tradeType === "BUY" ? "sellers" : "buyers";
+  return [
+    { label: "Reading your request", detail: "Country, amount and payment method", status: "done" },
+    { label: "Opening the P2P Skill", detail: "Connecting to Binance public data", status: "done" },
+    { label: `Looking for live ${people}`, detail: "Reading the current ad list", status: "done" },
+    { label: "Checking your amount", detail: "Comparing each ad's minimum and limit", status: "done" },
+    { label: "Matching payment methods", detail: "Keeping ads you can use", status: "done" },
+    { label: "Checking merchant history", detail: "Looking at orders and completion rates", status: "done" },
+    { label: "Comparing complete routes", detail: "Testing one, two and three merchants", status: "done" },
+    { label: "Preparing your choices", detail: "Cheapest, Balanced and Simplest", status: "done" },
+  ];
+}
 
 type PaymentMethod = { identifier: string; name: string };
 
@@ -55,6 +58,8 @@ function formatPercent(value: number) {
 
 function RouteCard({ route, result }: { route: RouteOption; result: Extract<RouterResponse, { ok: true }> }) {
   const primaryLabel = route.labels.join(" + ");
+  const orderCount = route.legs.reduce((sum, leg) => sum + leg.monthOrderCount, 0);
+  const averageCompletion = route.legs.reduce((sum, leg) => sum + leg.monthFinishRate, 0) / route.legs.length;
   return (
     <article className={`route-card ${route.labels.includes("Balanced") ? "recommended" : ""}`}>
       <div className="route-card-head">
@@ -82,12 +87,20 @@ function RouteCard({ route, result }: { route: RouteOption; result: Extract<Rout
               <span>{formatNumber(leg.cryptoAmount, 6)} {result.request.asset} at {formatNumber(leg.price, 6)} {result.request.fiat}</span>
               <small>{leg.monthOrderCount} orders, {formatPercent(leg.monthFinishRate)} completed</small>
             </div>
-            <a href={leg.adUrl} target="_blank" rel="noreferrer" aria-label={`Open ${leg.merchant} ad on Binance`}>
-              Open ad <ArrowSquareOut size={16} weight="bold" />
+            <a className="open-ad-button" href={leg.adUrl} target="_blank" rel="noreferrer" aria-label={`Open ${leg.merchant} ad on Binance`}>
+              Open on Binance <ArrowSquareOut size={17} weight="bold" />
             </a>
           </div>
         ))}
       </div>
+
+      <details className="route-why">
+        <summary>Why this route?<span aria-hidden="true">+</span></summary>
+        <ul>
+          {route.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+          <li>{formatNumber(orderCount, 0)} recent orders across the route, with an average {formatPercent(averageCompletion)} completion rate.</li>
+        </ul>
+      </details>
 
       <div className="route-card-foot">
         <span><ShieldCheck size={17} weight="duotone" /> Reliability {route.reliabilityScore}/100</span>
@@ -97,18 +110,15 @@ function RouteCard({ route, result }: { route: RouteOption; result: Extract<Rout
   );
 }
 
-function ActivityTimeline({ items, loading, progress }: { items: ActivityItem[]; loading: boolean; progress: number }) {
+function ActivityTimeline({ items, loading, progress, tradeType }: { items: ActivityItem[]; loading: boolean; progress: number; tradeType: "BUY" | "SELL" }) {
   const visibleItems = loading
-    ? loadingLabels.map((label, index): ActivityItem => ({
-      label,
-      detail: index < progress ? "Complete" : index === progress ? "Working" : "Waiting",
-      status: "done",
-    }))
+    ? loadingItems(tradeType)
     : items;
 
   return (
-    <div className="activity-panel" aria-live="polite">
-      <div className="activity-title"><Sparkle size={18} weight="fill" /><span>Agent activity</span></div>
+    <div className={`activity-panel ${loading ? "is-searching" : "is-finished"}`} aria-live="polite">
+      <div className="activity-title"><Sparkle size={18} weight="fill" /><span>{loading ? "Building your route" : "Route check"}</span>{loading && <i className="activity-live">Live</i>}</div>
+      {loading && <div className="activity-progress" aria-hidden="true"><i style={{ width: `${((progress + 1) / visibleItems.length) * 100}%` }} /></div>}
       <ol>
         {visibleItems.map((item, index) => {
           const isDone = !loading || index < progress;
@@ -118,7 +128,7 @@ function ActivityTimeline({ items, loading, progress }: { items: ActivityItem[];
               <span className="activity-icon">
                 {item.status === "warning" && !loading
                   ? <WarningCircle size={16} weight="fill" />
-                  : isDone ? <CheckCircle size={16} weight="fill" /> : <span />}
+                  : isDone ? <CheckCircle size={16} weight="fill" /> : isWorking ? <MagnifyingGlass size={12} weight="bold" /> : <span />}
               </span>
               <div><strong>{item.label}</strong><small>{item.detail}</small></div>
             </li>
@@ -137,7 +147,7 @@ export function RouterExperience() {
   const [amount, setAmount] = useState("100");
   const [paymentMethod, setPaymentMethod] = useState("BANK");
   const [methods, setMethods] = useState<PaymentMethod[]>([{ identifier: "BANK", name: "Bank transfer" }]);
-  const [methodStatus, setMethodStatus] = useState<"loading" | "available" | "unavailable" | "error">("loading");
+  const [methodStatus, setMethodStatus] = useState<"loading" | "available" | "no_ads" | "unavailable" | "error">("loading");
   const [prompt, setPrompt] = useState("I want to buy 100 USDT in Kenya with bank transfer");
   const [intentState, setIntentState] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [intentMessage, setIntentMessage] = useState("");
@@ -148,37 +158,43 @@ export function RouterExperience() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`/api/methods?fiat=${encodeURIComponent(fiat)}`, { signal: controller.signal })
+    fetch(`/api/methods?fiat=${encodeURIComponent(fiat)}&asset=${encodeURIComponent(asset)}&tradeType=${tradeType}`, { signal: controller.signal })
       .then((response) => response.json())
       .then((data) => {
         if (data.ok && data.methods.length) {
-          setMethods(data.methods);
+          setMethods(data.methods as PaymentMethod[]);
           setPaymentMethod((current) => {
             if (data.methods.some((method: PaymentMethod) => method.identifier === current)) return current;
             const bank = data.methods.find((method: PaymentMethod) => method.identifier === "BANK");
             return (bank || data.methods[0]).identifier;
           });
           setMethodStatus("available");
+        } else if (data.ok && data.registeredMethods?.length) {
+          setMethods(data.registeredMethods as PaymentMethod[]);
+          setPaymentMethod(data.registeredMethods[0].identifier);
+          setMethodStatus("no_ads");
         } else {
-          setMethods([{ identifier: "BANK", name: "Bank transfer (requested)" }]);
-          setPaymentMethod("BANK");
+          setMethods([{ identifier: "ANY", name: "Any live payment method" }]);
+          setPaymentMethod("ANY");
           setMethodStatus("unavailable");
         }
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
+        setMethods([{ identifier: "ANY", name: "Any live payment method" }]);
+        setPaymentMethod("ANY");
         setMethodStatus("error");
       });
     return () => controller.abort();
-  }, [fiat]);
+  }, [fiat, asset, tradeType]);
 
   useEffect(() => {
     if (!loading) return;
     const timer = window.setInterval(() => {
-      setProgress((current) => Math.min(current + 1, loadingLabels.length - 1));
-    }, 560);
+      setProgress((current) => Math.min(current + 1, loadingItems(tradeType).length - 1));
+    }, 620);
     return () => window.clearInterval(timer);
-  }, [loading]);
+  }, [loading, tradeType]);
 
   async function understandRequest() {
     setIntentState("loading");
@@ -194,8 +210,10 @@ export function RouterExperience() {
 
       const parsed = data.parsed;
       if (parsed.fiat && markets.some((market) => market.fiat === parsed.fiat.toUpperCase())) {
+        const market = markets.find((item) => item.fiat === parsed.fiat.toUpperCase());
         setMethodStatus("loading");
         setFiat(parsed.fiat.toUpperCase());
+        if (market) setCountry(market.country);
       }
       else if (parsed.country) {
         const market = markets.find((item) => item.country.toLowerCase() === parsed.country.toLowerCase());
@@ -204,7 +222,10 @@ export function RouterExperience() {
           setFiat(market.fiat);
         }
       }
-      if (parsed.country) setCountry(parsed.country);
+      if (parsed.country) {
+        const market = markets.find((item) => item.country.toLowerCase() === parsed.country.toLowerCase());
+        if (market) setCountry(market.country);
+      }
       if (parsed.asset) setAsset(parsed.asset.toUpperCase());
       if (parsed.tradeType) setTradeType(parsed.tradeType);
       if (parsed.cryptoAmount) setAmount(String(parsed.cryptoAmount));
@@ -261,6 +282,12 @@ export function RouterExperience() {
     setResult(null);
   }
 
+  function tryPaymentMethod(method: PaymentMethod) {
+    setPaymentMethod(method.identifier);
+    setResult(null);
+    window.setTimeout(() => document.querySelector<HTMLButtonElement>(".find-button")?.focus(), 50);
+  }
+
   return (
     <div id="router" className="router-wrap">
       <form className="router-card" onSubmit={findRoutes}>
@@ -275,8 +302,8 @@ export function RouterExperience() {
         {intentMessage && <p className={`intent-message ${intentState}`}>{intentMessage}</p>}
 
         <div className="trade-toggle" aria-label="Trade direction">
-          <button type="button" className={tradeType === "BUY" ? "active" : ""} onClick={() => setTradeType("BUY")}>Buy crypto</button>
-          <button type="button" className={tradeType === "SELL" ? "active" : ""} onClick={() => setTradeType("SELL")}>Sell crypto</button>
+          <button type="button" className={tradeType === "BUY" ? "active" : ""} onClick={() => { setMethodStatus("loading"); setTradeType("BUY"); }}>Buy crypto</button>
+          <button type="button" className={tradeType === "SELL" ? "active" : ""} onClick={() => { setMethodStatus("loading"); setTradeType("SELL"); }}>Sell crypto</button>
         </div>
 
         <div className="route-fields">
@@ -314,7 +341,7 @@ export function RouterExperience() {
           </label>
           <label>
             <span><ArrowsLeftRight size={17} /> Crypto asset</span>
-            <select value={asset} onChange={(event) => setAsset(event.target.value)}>
+            <select value={asset} onChange={(event) => { setMethodStatus("loading"); setAsset(event.target.value); }}>
               {["USDT", "BTC", "ETH", "BNB"].map((item) => <option key={item}>{item}</option>)}
             </select>
           </label>
@@ -328,16 +355,18 @@ export function RouterExperience() {
               {methods.map((method) => <option key={method.identifier} value={method.identifier}>{method.name}</option>)}
             </select>
             <small className={`method-note ${methodStatus}`}>
-              {methodStatus === "loading" && "Checking Binance payment methods"}
-              {methodStatus === "unavailable" && "Binance returned no live payment methods for this fiat."}
+              {methodStatus === "loading" && "Checking live ads and payment methods"}
+              {methodStatus === "available" && "Only methods found on current live ads are shown."}
+              {methodStatus === "no_ads" && `Binance lists these methods, but has no live ${asset} ${tradeType === "BUY" ? "sell" : "buy"} ads right now.`}
+              {methodStatus === "unavailable" && "Binance currently lists no payment methods for this currency."}
               {methodStatus === "error" && "Payment methods could not be refreshed."}
             </small>
           </label>
         </div>
 
         <div className="form-actions">
-          <button className="find-button" type="submit" disabled={loading}>
-            {loading ? "Finding complete routes" : "Find my route"}<ArrowRight size={19} weight="bold" />
+          <button className="find-button" type="submit" disabled={loading || !paymentMethod}>
+            {loading ? "Building your route" : "Find my route"}<ArrowRight size={19} weight="bold" />
           </button>
           <button className="example-button" type="button" onClick={useLiveExample}>Reset to live Kenya demo</button>
         </div>
@@ -356,7 +385,7 @@ export function RouterExperience() {
 
       {(loading || result) && (
         <div className="results" ref={resultRef}>
-          <ActivityTimeline items={result && "activity" in result ? result.activity || [] : []} loading={loading} progress={progress} />
+          <ActivityTimeline items={result && "activity" in result ? result.activity || [] : []} loading={loading} progress={progress} tradeType={tradeType} />
           {!loading && result?.ok && (
             <div className="route-results">
               <div className="result-heading">
@@ -377,7 +406,10 @@ export function RouterExperience() {
           {!loading && result && !result.ok && (
             <div className="empty-result" role="alert">
               <WarningCircle size={28} weight="fill" />
-              <div><h2>No complete live route</h2><p>{result.message}</p><button type="button" onClick={useLiveExample}>Switch to Kenya</button></div>
+              <div><h2>No complete live route</h2><p>{result.message}</p>
+                {result.suggestedMethods?.length ? <div className="suggested-methods"><strong>Try a method used by live ads</strong><div>{result.suggestedMethods.map((method) => <button type="button" key={method.identifier} onClick={() => tryPaymentMethod(method)}>{method.name}</button>)}</div></div> : null}
+                <button className="kenya-button" type="button" onClick={useLiveExample}>Switch to the Kenya demo</button>
+              </div>
             </div>
           )}
         </div>
