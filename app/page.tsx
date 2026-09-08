@@ -37,27 +37,34 @@ export default function Home() {
   return (
     <main className="landing-page">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }} />
-      <header className="site-header">
-        <div className="shell header-inner">
-          <Link href="#top" aria-label="P2P Router home"><Brand /></Link>
-          <nav aria-label="Main navigation"><Link href="#features">Features</Link><Link href="#how-it-works">How it works</Link><Link href="#faq">FAQ</Link><a href="https://github.com/fawazfff/p2p-router" target="_blank" rel="noreferrer">GitHub</a></nav>
-          <details className="mobile-menu">
-            <summary aria-label="Open navigation"><List size={20} weight="bold" /></summary>
-            <div className="mobile-menu-panel"><Link href="#features">Features</Link><Link href="#how-it-works">How it works</Link><Link href="#faq">FAQ</Link><a href="https://github.com/fawazfff/p2p-router" target="_blank" rel="noreferrer">GitHub</a></div>
-          </details>
-          <Link className="nav-cta" href="/router">Find a route</Link>
-        </div>
-      </header>
+      <div className="hero-canvas">
+        <div className="landing-window">
+          <header className="site-header">
+            <div className="shell header-inner">
+              <Link href="#top" aria-label="P2P Router home"><Brand /></Link>
+              <nav aria-label="Main navigation"><Link className="active" href="#top">Home</Link><Link href="#features">Features</Link><Link href="#how-it-works">How it works</Link><Link href="#faq">FAQ</Link></nav>
+              <details className="mobile-menu">
+                <summary aria-label="Open navigation"><List size={20} weight="bold" /></summary>
+                <div className="mobile-menu-panel"><Link href="#top">Home</Link><Link href="#features">Features</Link><Link href="#how-it-works">How it works</Link><Link href="#faq">FAQ</Link><a href="https://github.com/fawazfff/p2p-router" target="_blank" rel="noreferrer">GitHub</a></div>
+              </details>
+              <Link className="nav-cta" href="/router">Find a route</Link>
+            </div>
+          </header>
 
-      <section id="top" className="landing-hero">
-        <div className="shell hero-center">
-          <p className="hero-badge"><Sparkle size={14} weight="fill" /> Google Maps for Binance P2P</p>
-          <h1>Find the best route for your <span>whole P2P amount.</span></h1>
-          <p>Choose your market and amount. Get complete routes across live Binance P2P merchants.</p>
-          <div className="hero-actions"><Link className="primary-cta" href="/router">Find a route <ArrowRight size={18} weight="bold" /></Link><Link className="secondary-cta" href="#how-it-works">See how it works</Link></div>
+          <section id="top" className="landing-hero">
+            <div className="shell hero-center">
+              <p className="hero-badge"><Sparkle size={14} weight="fill" /> Google Maps for Binance P2P</p>
+              <h1>Find the best route for your whole P2P amount.</h1>
+              <p>Choose a market and amount. Get a complete route across live Binance merchants.</p>
+              <div className="hero-actions"><Link className="primary-cta" href="/router">Find a route <ArrowRight size={18} weight="bold" /></Link><Link className="secondary-cta" href="#how-it-works">How it works</Link></div>
+            </div>
+            <div className="hero-product shell">
+              <div className="product-preview preview-back" aria-hidden="true"><Image src="/images/p2p-route-hero.webp" alt="" width={1672} height={941} sizes="(max-width: 760px) 96vw, 980px" /></div>
+              <div className="product-preview preview-front"><div className="preview-chrome"><Brand /><span>Live route workspace</span></div><Image src="/images/p2p-route-hero.webp" alt="P2P Router connecting one request to several eligible Binance merchants" width={1672} height={941} priority sizes="(max-width: 760px) 96vw, 980px" /></div>
+            </div>
+          </section>
         </div>
-        <div className="hero-visual shell"><Image src="/images/p2p-route-hero.webp" alt="A route connecting one P2P request to several verified merchants" width={1672} height={941} priority sizes="(max-width: 760px) 100vw, 1180px" /></div>
-      </section>
+      </div>
 
       <section className="decision-strip" aria-label="How P2P Router makes decisions"><div className="shell decision-line"><p><strong>AI</strong> understands the request</p><p><strong>Binance</strong> provides live market data</p><p><strong>Code</strong> decides the routes</p></div></section>
 
