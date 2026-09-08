@@ -45,7 +45,7 @@ function asNumber(value: number | string | undefined): number {
 
 async function binanceFetch<T>(path: string, params: URLSearchParams): Promise<T> {
   let lastError: unknown;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
@@ -69,6 +69,9 @@ async function binanceFetch<T>(path: string, params: URLSearchParams): Promise<T
       return body.data;
     } catch (error) {
       lastError = error;
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+      }
     } finally {
       clearTimeout(timeout);
     }

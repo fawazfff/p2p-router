@@ -17,6 +17,10 @@ function roundAmount(value: number) {
   return Number(value.toFixed(AMOUNT_PRECISION));
 }
 
+function amountWithMarketCushion(value: number) {
+  return Math.ceil(value * 1.02 * 1_000_000) / 1_000_000;
+}
+
 type EngineResult = {
   routes: RouteOption[];
   activity: ActivityItem[];
@@ -306,7 +310,9 @@ export function buildRoutes(ads: BinanceAd[], request: RouterRequest): EngineRes
       activity,
       diagnostics,
       failureReason,
-      suggestedAmount: failureReason === "AMOUNT" ? diagnostics.minimumOrderAmount : undefined,
+      suggestedAmount: failureReason === "AMOUNT" && diagnostics.minimumOrderAmount
+        ? amountWithMarketCushion(diagnostics.minimumOrderAmount)
+        : undefined,
       partialRoute,
     };
   }

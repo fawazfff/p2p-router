@@ -549,7 +549,7 @@ export function RouterExperience() {
               <div className={`empty-result ${result.partialRoute ? "compact" : ""}`}>
                 <WarningCircle size={28} weight="fill" />
                 <div><h2>{result.partialRoute ? "The rest is not covered" : "No complete route yet"}</h2><p>{result.message}</p>
-                  {result.suggestedAmount ? <div className="suggested-amount"><button type="button" onClick={() => tryAmount(result.suggestedAmount as number)}>Set amount to {formatNumber(result.suggestedAmount, 6)} {asset}</button><span>This is the smallest eligible amount found now.</span></div> : null}
+                  {result.suggestedAmount ? <div className="suggested-amount"><button type="button" onClick={() => tryAmount(result.suggestedAmount as number)}>Try {formatNumber(result.suggestedAmount, 6)} {asset}</button><span>This includes a small cushion because live limits can change.</span></div> : null}
                   {result.suggestedMethods?.length ? <div className="suggested-methods"><strong>Try a payment method used by live ads</strong><div>{result.suggestedMethods.map((method) => <button type="button" key={method.identifier} onClick={() => tryPaymentMethod(method)}>{method.name}</button>)}</div></div> : null}
                   {!result.partialRoute && !result.suggestedAmount ? <button className="kenya-button" type="button" onClick={useLiveExample}>Switch to the Kenya demo</button> : null}
                 </div>
