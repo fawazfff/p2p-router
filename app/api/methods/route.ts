@@ -1,8 +1,12 @@
 import { listTradeMethods } from "@/lib/binance-p2p";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
+  const limited = enforceRateLimit(request, { limit: 60 });
+  if (limited) return limited;
+
   const fiat = new URL(request.url).searchParams.get("fiat")?.toUpperCase();
   if (!fiat || !/^[A-Z]{3}$/.test(fiat)) {
     return Response.json({ ok: false, message: "Choose a valid fiat currency." }, { status: 400 });
@@ -18,4 +22,3 @@ export async function GET(request: Request) {
     }, { status: 502 });
   }
 }
-

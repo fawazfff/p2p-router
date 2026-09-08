@@ -47,6 +47,14 @@ npm run lint
 npm run build
 ```
 
+## Security
+
+- Secrets stay in server-side environment variables and `.env` files are ignored.
+- All public request fields are validated before Binance or OpenAI is called.
+- API routes have lightweight per-instance request limits to reduce accidental abuse.
+- Production responses include CSP, clickjacking, MIME sniffing, referrer and permissions protections.
+- Vercel provides HTTPS in production. Platform-level rate limiting can be added later for globally shared enforcement.
+
 ## Important market note
 
 Availability is controlled by Binance and can vary by fiat currency, payment method, location and time. If Binance returns no listings, the app shows a visible live-data error and does not use sample merchants.

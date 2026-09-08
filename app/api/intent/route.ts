@@ -1,4 +1,5 @@
 import { interpretIntent } from "@/lib/openai-agent";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -8,6 +9,9 @@ const requestSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const limited = enforceRateLimit(request, { limit: 10 });
+  if (limited) return limited;
+
   const parsed = requestSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return Response.json({ ok: false, message: "Enter a complete P2P request." }, { status: 400 });
@@ -31,4 +35,3 @@ export async function POST(request: Request) {
     }, { status: 502 });
   }
 }
-

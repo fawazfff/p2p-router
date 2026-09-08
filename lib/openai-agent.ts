@@ -20,8 +20,10 @@ const explanationSchema = z.object({
 
 function client() {
   const apiKey = process.env.OPENAI_API_KEY;
-  return apiKey ? new OpenAI({ apiKey }) : null;
+  return apiKey ? new OpenAI({ apiKey, timeout: 8_000, maxRetries: 0 }) : null;
 }
+
+const MODEL = process.env.OPENAI_MODEL || "gpt-5.6-luna";
 
 export async function interpretIntent(prompt: string) {
   const openai = client();
@@ -30,7 +32,7 @@ export async function interpretIntent(prompt: string) {
   }
 
   const response = await openai.responses.parse({
-    model: process.env.OPENAI_MODEL || "gpt-5-mini",
+    model: MODEL,
     input: [
       {
         role: "developer",
@@ -64,7 +66,7 @@ export async function explainRoutes(request: RouterRequest, routes: RouteOption[
   }));
 
   const response = await openai.responses.parse({
-    model: process.env.OPENAI_MODEL || "gpt-5-mini",
+    model: MODEL,
     input: [
       {
         role: "developer",
@@ -80,4 +82,3 @@ export async function explainRoutes(request: RouterRequest, routes: RouteOption[
 
   return response.output_parsed;
 }
-

@@ -1,11 +1,15 @@
 import { listP2PAds, listTradeMethods } from "@/lib/binance-p2p";
 import { explainRoutes } from "@/lib/openai-agent";
 import { routerRequestSchema, type RouterResponse } from "@/lib/p2p-schema";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { buildRoutes } from "@/lib/route-engine";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  const limited = enforceRateLimit(request, { limit: 20 });
+  if (limited) return limited;
+
   const parsed = routerRequestSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     const response: RouterResponse = {

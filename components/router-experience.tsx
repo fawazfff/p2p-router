@@ -377,7 +377,7 @@ export function RouterExperience() {
           {!loading && result && !result.ok && (
             <div className="empty-result" role="alert">
               <WarningCircle size={28} weight="fill" />
-              <div><h2>No complete live route</h2><p>{result.message}</p><button type="button" onClick={useLiveExample}>Use live Kenya market</button></div>
+              <div><h2>No complete live route</h2><p>{result.message}</p><button type="button" onClick={useLiveExample}>Switch to Kenya</button></div>
             </div>
           )}
         </div>

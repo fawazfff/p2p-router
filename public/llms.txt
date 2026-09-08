@@ -1,0 +1,8 @@
+# P2P Router
+
+P2P Router finds complete routes across live Binance P2P ads for a user's requested crypto amount.
+
+- Homepage: /
+- Live route planner: /router
+- Data policy: results use live Binance public P2P market data and fail closed when unavailable.
+- AI boundary: OpenAI interprets intent and explains results. Deterministic code selects routes.
